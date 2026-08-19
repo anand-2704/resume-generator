@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resume Generator — one-page, ATS-safe</title>
+<style>
+  :root{
+    --ink:#16202b; --ink-soft:#5a6b7a; --line:#dbe2e8; --line-strong:#c3ced8;
+    --bg:#eef1f4; --panel:#ffffff; --accent:#1f6f5c; --accent-ink:#0e3b31;
+    --amber:#c47f17; --red:#c0392b; --field:#f7f9fb; --radius:10px;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:14px;line-height:1.5}
+  header.top{background:var(--panel);border-bottom:1px solid var(--line);
+       padding:14px 22px;display:flex;align-items:baseline;gap:14px;position:sticky;top:0;z-index:20}
+  header.top h1{font-size:16px;margin:0;letter-spacing:.2px}
+  header.top .sub{color:var(--ink-soft);font-size:12.5px}
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+       gap:0;height:calc(100vh - 53px)}
+  @media (max-width:900px){.layout{grid-template-columns:1fr;height:auto}}
+
+  /* ---------- editor ---------- */
+  .editor{overflow-y:auto;padding:20px 22px 120px;border-right:1px solid var(--line)}
+  .group{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+       padding:14px 16px;margin-bottom:14px}
+  .group > label.head{display:block;font-weight:700;font-size:12px;letter-spacing:.6px;
+       text-transform:uppercase;color:var(--accent-ink);margin-bottom:8px}
+  .hint{font-size:12px;color:var(--ink-soft);margin:-2px 0 9px}
+  .hint code{background:var(--field);border:1px solid var(--line);border-radius:4px;
+       padding:0 4px;font-family:var(--mono);font-size:11.5px}
+  input[type=text],textarea{width:100%;border:1px solid var(--line-strong);
+       background:var(--field);border-radius:7px;padding:8px 10px;font-family:var(--sans);
+       font-size:13.5px;color:var(--ink);resize:vertical}
+  input[type=text]:focus,textarea:focus{outline:2px solid var(--accent);
+       outline-offset:-1px;background:#fff}
+  textarea{min-height:64px}
+  textarea.tall{min-height:150px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1.4fr 1fr 1.2fr;gap:10px}
+  @media (max-width:560px){.row2,.row3{grid-template-columns:1fr}}
+  .field-label{font-size:11.5px;color:var(--ink-soft);margin:0 0 3px;font-weight:600}
+  .subcard{border:1px dashed var(--line-strong);border-radius:8px;padding:12px;margin-top:10px}
+  .subcard .co-title{font-weight:700;font-size:12.5px;margin-bottom:8px;color:var(--ink)}
+
+  /* ---------- preview panel ---------- */
+  .preview{overflow-y:auto;padding:18px 20px 120px;background:var(--bg)}
+  .previewInner{max-width:640px;margin:0 auto}
+  .meterWrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+       padding:14px 16px;margin-bottom:16px;position:sticky;top:0;z-index:5}
+  .meterTop{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .meterTop .status{font-weight:700;font-size:13.5px}
+  .meterTop .pct{font-family:var(--mono);font-size:13px;color:var(--ink-soft)}
+  .track{height:12px;background:#e7ecf0;border-radius:20px;overflow:hidden;position:relative}
+  .fill{height:100%;width:0%;background:var(--accent);border-radius:20px;
+       transition:width .18s ease, background .18s ease}
+  .track .warnMark{position:absolute;top:-3px;bottom:-3px;left:95%;width:2px;background:var(--line-strong)}
+  .meterMsg{font-size:12px;margin-top:8px;color:var(--ink-soft);min-height:16px}
+  .meterMsg.over{color:var(--red);font-weight:600}
+  .meterMsg.warn{color:var(--amber);font-weight:600}
+  .meterMsg.ok{color:var(--accent-ink)}
+
+  /* live HTML replica of the A4 page */
+  .paperScaler{display:flex;justify-content:center}
+  .paper{background:#fff;box-shadow:0 2px 14px rgba(20,40,60,.14);
+       /* A4 aspect; width scales, height follows */
+       width:595px;min-height:842px;transform-origin:top center;
+       padding:14px 6.4px 13px 10.8px;position:relative}
+  .paper .ovf{position:absolute;left:0;right:0;top:828px;border-top:2px dashed var(--red);
+       text-align:right;font-size:10px;color:var(--red);font-family:var(--sans)}
+  /* replica typography — Carlito if available, else Calibri/Arced fallback */
+  @font-face{font-family:'CarlitoLocal';src:local('Carlito');font-weight:400}
+  .paper *{font-family:'Carlito','Calibri','Carlito',Arial,sans-serif}
+  .p-name{text-align:center;font-weight:700;font-size:16px;line-height:1;margin:0}
+  .p-title{text-align:center;font-weight:700;font-size:12px;margin:5.5px 0 0}
+  .p-contact{text-align:center;font-size:10.6px;margin:4.5px 0 0}
+  .p-h{font-weight:700;font-size:12px;margin:5px 0 0;border-bottom:.72px solid #000;
+       padding-bottom:2px;line-height:1.15}
+  .p-h.first{margin-top:6px}
+  .p-body{font-size:10px;line-height:13.9px;margin:2.8px 0 0;white-space:pre-wrap}
+  .p-skill{font-size:10px;line-height:13.9px;margin:0}
+  .p-co{display:flex;justify-content:space-between;font-size:10px;line-height:13.9px;
+       margin-top:2px;gap:12px}
+  .p-co .l b{font-weight:700}.p-co .l i{font-weight:700;font-style:italic}
+  .p-co .r{font-weight:700;white-space:nowrap}
+  .p-bul{font-size:10px;line-height:13.9px;margin:0;padding-left:14px;text-indent:-14px}
+  .p-bul::before{content:"\2022";display:inline-block;width:14px;text-indent:0}
+  .p-body b,.p-skill b,.p-bul b{font-weight:700}
+
+  /* ---------- action bar ---------- */
+  .actions{position:fixed;left:0;right:0;bottom:0;background:var(--panel);
+       border-top:1px solid var(--line);padding:12px 22px;display:flex;gap:12px;
+       align-items:center;z-index:30}
+  .actions .fname{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .actions .fname input{max-width:340px}
+  .actions .spacer{flex:1}
+  button{font-family:var(--sans);font-size:13.5px;font-weight:600;border-radius:8px;
+       padding:9px 16px;cursor:pointer;border:1px solid transparent}
+  button.ghost{background:#fff;border-color:var(--line-strong);color:var(--ink)}
+  button.ghost:hover{border-color:var(--accent);color:var(--accent-ink)}
+  button.primary{background:var(--accent);color:#fff}
+  button.primary:hover{background:#195a4b}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .tag{font-size:11px;color:var(--ink-soft)}
+  dialog{border:none;border-radius:12px;padding:0;max-width:92vw;width:820px;
+       box-shadow:0 10px 50px rgba(0,0,0,.3)}
+  dialog::backdrop{background:rgba(15,30,40,.5)}
+  .dlgHead{display:flex;justify-content:space-between;align-items:center;
+       padding:12px 16px;border-bottom:1px solid var(--line)}
+  .dlgHead b{font-size:14px}
+  dialog iframe{width:100%;height:78vh;border:0;display:block}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Resume Generator</h1>
+  <span class="sub">One page · ATS-safe · exact format match</span>
+</header>
+
+<div class="layout">
+  <!-- ================= EDITOR ================= -->
+  <div class="editor">
+
+    <div class="group">
+      <label class="head">Header</label>
+      <div class="hint">Pre-filled. Edit if needed. Shown centered at the top.</div>
+      <p class="field-label">Full name</p>
+      <input type="text" id="name" value="{{ default.name }}">
+      <div style="height:8px"></div>
+      <p class="field-label">Title line</p>
+      <input type="text" id="title" value="{{ default.title }}">
+      <div style="height:8px"></div>
+      <p class="field-label">Contact line</p>
+      <input type="text" id="contact" value="{{ default.contact }}">
+    </div>
+
+    <div class="group">
+      <label class="head">1 · Summary</label>
+      <div class="hint">Wrap words in <code>**double asterisks**</code> to <b>bold</b> them.</div>
+      <textarea id="summary" class="tall">{{ default.summary }}</textarea>
+    </div>
+
+    <div class="group">
+      <label class="head">2 · Technical Skills</label>
+      <div class="hint">One category per line. Press <b>Enter</b> for a new line. Bold the label like
+        <code>**Programming &amp; Querying:** SQL, Python…</code></div>
+      <textarea id="skills" class="tall">{{ default.skills | join("\n") }}</textarea>
+    </div>
+
+    <div class="group">
+      <label class="head">3 · Professional Experience</label>
+      <div class="hint">Company, title, location &amp; dates are pre-filled. One bullet per line;
+        press <b>Enter</b> for a new bullet. Bold with <code>**…**</code>.</div>
+
+      {% for job in default.experience %}
+      <div class="subcard" data-job="{{ loop.index0 }}">
+        <div class="co-title">Company {{ loop.index }}</div>
+        <div class="row3">
+          <div><p class="field-label">Company</p>
+            <input type="text" class="j-company" value="{{ job.company }}"></div>
+          <div><p class="field-label">Title</p>
+            <input type="text" class="j-title" value="{{ job.job_title }}"></div>
+          <div><p class="field-label">Location | Dates</p>
+            <input type="text" class="j-meta" value="{{ job.meta }}"></div>
+        </div>
+        <div style="height:8px"></div>
+        <p class="field-label">Bullets (one per line)</p>
+        <textarea class="j-bullets tall">{{ job.bullets | join("\n") }}</textarea>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="group">
+      <label class="head">Education</label>
+      <div class="hint">Pre-filled. One entry per line.</div>
+      <textarea id="education">{{ default.education | join("\n") }}</textarea>
+    </div>
+
+    <div class="group">
+      <label class="head">Certifications</label>
+      <div class="hint">Pre-filled. One per line — shown as bullets.</div>
+      <textarea id="certifications">{{ default.certifications | join("\n") }}</textarea>
+    </div>
+  </div>
+
+  <!-- ================= PREVIEW ================= -->
+  <div class="preview">
+    <div class="previewInner">
+      <div class="meterWrap">
+        <div class="meterTop">
+          <span class="status" id="mStatus">Fits on one page</span>
+          <span class="pct" id="mPct">—</span>
+        </div>
+        <div class="track"><div class="fill" id="mFill"></div>
+          <div class="warnMark"></div></div>
+        <div class="meterMsg ok" id="mMsg">Live estimate updates as you type.</div>
+      </div>
+
+      <div class="paperScaler">
+        <div class="paper" id="paper">
+          <p class="p-name" id="pv-name"></p>
+          <p class="p-title" id="pv-title"></p>
+          <p class="p-contact" id="pv-contact"></p>
+
+          <p class="p-h first">SUMMARY</p>
+          <p class="p-body" id="pv-summary"></p>
+
+          <p class="p-h">TECHNICAL SKILLS</p>
+          <div id="pv-skills"></div>
+
+          <p class="p-h">PROFESSIONAL EXPERIENCE</p>
+          <div id="pv-exp"></div>
+
+          <p class="p-h">EDUCATION</p>
+          <div id="pv-edu"></div>
+
+          <p class="p-h">CERTIFICATIONS</p>
+          <div id="pv-cert"></div>
+
+          <div class="ovf" id="pv-ovf" style="display:none">one-page limit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ACTION BAR ================= -->
+<div class="actions">
+  <div class="fname">
+    <span class="field-label" style="margin:0">4 · File name</span>
+    <input type="text" id="filename" value="{{ default.filename }}">
+    <span class="tag">.pdf</span>
+  </div>
+  <div class="spacer"></div>
+  <button class="ghost" id="btnPreview">Preview exact PDF</button>
+  <button class="primary" id="btnGenerate">Generate &amp; download</button>
+</div>
+
+<dialog id="pdfDialog">
+  <div class="dlgHead"><b>Exact PDF preview</b>
+    <button class="ghost" id="btnCloseDlg">Close</button></div>
+  <iframe id="pdfFrame" title="PDF preview"></iframe>
+</dialog>
+
+<script>
+const WARN_PCT = {{ warn_pct }};
+const $ = id => document.getElementById(id);
+
+function collect(){
+  const jobs = [...document.querySelectorAll('.subcard')].map(card => ({
+    company: card.querySelector('.j-company').value,
+    job_title: card.querySelector('.j-title').value,
+    meta: card.querySelector('.j-meta').value,
+    bullets: card.querySelector('.j-bullets').value
+  }));
+  return {
+    filename: $('filename').value,
+    name: $('name').value,
+    title: $('title').value,
+    contact: $('contact').value,
+    summary: $('summary').value,
+    skills: $('skills').value,
+    experience: jobs,
+    education: $('education').value,
+    certifications: $('certifications').value
+  };
+}
+
+// ---- inline **bold** -> <b> (HTML-escaped) ----
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function md(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');}
+
+// ---- live HTML replica (A) ----
+function renderReplica(d){
+  $('pv-name').textContent = d.name;
+  $('pv-title').textContent = d.title;
+  $('pv-contact').textContent = d.contact;
+  $('pv-summary').innerHTML = md(d.summary);
+
+  $('pv-skills').innerHTML = d.skills.split('\n')
+    .filter(l=>l.trim()).map(l=>`<p class="p-skill">${md(l)}</p>`).join('');
+
+  $('pv-exp').innerHTML = d.experience.map(j=>{
+    const head = `<div class="p-co"><span class="l"><b>${esc(j.company)}</b> | <i>${esc(j.job_title)}</i></span><span class="r">${esc(j.meta)}</span></div>`;
+    const buls = j.bullets.split('\n').filter(b=>b.trim())
+      .map(b=>`<p class="p-bul">${md(b)}</p>`).join('');
+    return head+buls;
+  }).join('');
+
+  $('pv-edu').innerHTML = d.education.split('\n')
+    .filter(l=>l.trim()).map(l=>`<p class="p-body" style="margin-top:0">${md(l)}</p>`).join('');
+
+  $('pv-cert').innerHTML = d.certifications.split('\n')
+    .filter(l=>l.trim()).map(l=>`<p class="p-bul">${md(l)}</p>`).join('');
+}
+
+// ---- meter from server estimate (authoritative) ----
+let estimateTimer=null;
+function scheduleEstimate(){
+  clearTimeout(estimateTimer);
+  estimateTimer=setTimeout(runEstimate,220);
+}
+async function runEstimate(){
+  const d=collect();
+  try{
+    const r=await fetch('/api/estimate',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    const m=await r.json();
+    paintMeter(m);
+  }catch(e){/* keep last meter on transient error */}
+}
+function paintMeter(m){
+  const pct=m.pct;
+  $('mPct').textContent = pct.toFixed(0)+'% of page';
+  const fill=$('mFill');
+  fill.style.width=Math.min(pct,100)+'%';
+  const msg=$('mMsg'), status=$('mStatus'), ovf=$('pv-ovf');
+  msg.classList.remove('ok','warn','over');
+  if(!m.fits || pct>100){
+    fill.style.background='var(--red)';
+    status.textContent='Over one page';
+    msg.classList.add('over');
+    const over=Math.max(1,Math.round((pct-100)/ (100/ (m.capacity/13.9)) ));
+    msg.textContent=`Content exceeds one page — trim about ${over} line${over>1?'s':''} (remove or shorten a bullet).`;
+    ovf.style.display='block';
+  }else if(pct>=WARN_PCT){
+    fill.style.background='var(--amber)';
+    status.textContent='Nearly full';
+    msg.classList.add('warn');
+    msg.textContent=`Close to the edge (${pct.toFixed(0)}%). Fits now, but little room to spare.`;
+    ovf.style.display='none';
+  }else{
+    fill.style.background='var(--accent)';
+    status.textContent='Fits on one page';
+    msg.classList.add('ok');
+    msg.textContent=`Fits comfortably — ${(100-pct).toFixed(0)}% headroom.`;
+    ovf.style.display='none';
+  }
+}
+
+// scale the 595px paper to fit its column
+function scalePaper(){
+  const wrap=document.querySelector('.paperScaler');
+  const paper=$('paper');
+  const avail=wrap.clientWidth;
+  const scale=Math.min(1, avail/595);
+  paper.style.transform=`scale(${scale})`;
+  paper.style.marginBottom=(scale<1?(842*scale-842):0)+'px';
+}
+
+function refresh(){
+  renderReplica(collect());
+  scalePaper();
+  scheduleEstimate();
+}
+
+// ---- exact PDF preview (B) ----
+async function exactPreview(){
+  const d=collect();
+  const r=await fetch('/api/preview',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+  const blob=await r.blob();
+  $('pdfFrame').src=URL.createObjectURL(blob);
+  $('pdfDialog').showModal();
+}
+
+// ---- generate & download ----
+async function generate(){
+  const d=collect();
+  const r=await fetch('/api/generate',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+  const blob=await r.blob();
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  let fn=(d.filename||'resume').replace(/\.pdf$/i,'');
+  a.download=fn+'.pdf';
+  document.body.appendChild(a);a.click();a.remove();
+}
+
+// wire up
+document.querySelectorAll('input,textarea').forEach(el=>{
+  el.addEventListener('input',refresh);
+});
+$('btnPreview').addEventListener('click',exactPreview);
+$('btnGenerate').addEventListener('click',generate);
+$('btnCloseDlg').addEventListener('click',()=>$('pdfDialog').close());
+window.addEventListener('resize',scalePaper);
+refresh();
+</script>
+</body>
+</html>
