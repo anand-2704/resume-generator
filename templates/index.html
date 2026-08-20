@@ -112,6 +112,47 @@
        padding:12px 16px;border-bottom:1px solid var(--line)}
   .dlgHead b{font-size:14px}
   dialog iframe{width:100%;height:78vh;border:0;display:block}
+
+  /* ---------- tailor panel ---------- */
+  .tailor{background:#0f2e27;border:1px solid #17463b;border-radius:var(--radius);
+       padding:16px;margin-bottom:16px;color:#eaf3f0}
+  .tailor h2{margin:0 0 4px;font-size:14px;letter-spacing:.3px;color:#fff}
+  .tailor .sub{font-size:12px;color:#9dc4ba;margin-bottom:10px}
+  .tailor textarea{width:100%;min-height:110px;border:1px solid #2a5a4d;
+       background:#0b241e;color:#eaf3f0;border-radius:7px;padding:9px 11px;
+       font-size:13px;resize:vertical}
+  .tailor textarea:focus{outline:2px solid #3fae90;outline-offset:-1px}
+  .tailor .bar{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .tailor button.go{background:#2ea988;color:#04231c;font-weight:700}
+  .tailor button.go:hover{background:#39c39d}
+  .tailor button.go:disabled{opacity:.55}
+  .tailor .aiOff{font-size:12px;color:#ffd27a;margin-top:8px}
+  .tailor .spin{display:none;font-size:12.5px;color:#bfe0d6}
+  .tailor .spin.on{display:inline}
+
+  .report{margin-top:12px;border-top:1px solid #21524644;padding-top:12px;display:none}
+  .report.on{display:block}
+  .scoreRow{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .scoreBadge{font-size:22px;font-weight:800;color:#fff;background:#175f4d;
+       border-radius:10px;padding:6px 12px;min-width:64px;text-align:center}
+  .scoreBadge.warn{background:#7a5a12}.scoreBadge.low{background:#7a2f26}
+  .scoreLbl{font-size:12.5px;color:#cfe6de}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}
+  .chip{font-size:11px;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .chip.have{background:#12463a;color:#8ff0cf;border:1px solid #1c6a55}
+  .chip.miss{background:#4a2320;color:#ffb3a6;border:1px solid #6e332c}
+  .rlabel{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+       color:#8bb3a8;margin:8px 0 2px}
+  .notes{font-size:12px;color:#d6ebe4;margin:8px 0 0;padding-left:16px}
+  .notes li{margin:2px 0}
+  .warnBox{background:#3a2a12;border:1px solid #6b4f1c;border-radius:7px;
+       padding:8px 10px;margin-top:8px;font-size:12px;color:#ffe0a6}
+  .costLine{font-size:11.5px;color:#9dc4ba;margin-top:8px}
+  .applyRow{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  button.apply{background:#2ea988;color:#04231c;font-weight:700}
+  button.apply:hover{background:#39c39d}
+  button.revert{background:transparent;border:1px solid #3a6a5c;color:#bfe0d6}
+  .miniNote{font-size:11px;color:#9dc4ba}
 </style>
 </head>
 <body>
@@ -123,6 +164,41 @@
 <div class="layout">
   <!-- ================= EDITOR ================= -->
   <div class="editor">
+
+    <div class="tailor" id="tailorPanel">
+      <h2>Tailor to a job</h2>
+      <div class="sub">Paste a job description. AI reorders and rewrites your
+        <b>real</b> experience to match it — it never invents skills. Review
+        everything before you download.</div>
+      <textarea id="jd" placeholder="Paste the full job description here…"></textarea>
+      <div class="bar">
+        <button class="go" id="btnTailor">Tailor my resume</button>
+        <span class="spin" id="tailorSpin">Reading the job & tailoring… (~10s)</span>
+      </div>
+      <div class="aiOff" id="aiOff" style="display:none">
+        AI tailoring is off because no API key is set on the server. Add
+        <code>ANTHROPIC_API_KEY</code> in your host's environment to enable it.
+      </div>
+
+      <div class="report" id="report">
+        <div class="scoreRow">
+          <div class="scoreBadge" id="scoreBadge">—</div>
+          <div class="scoreLbl" id="scoreLbl">Keyword match against the job.</div>
+        </div>
+        <div class="rlabel">Matched keywords</div>
+        <div class="chips" id="chipsHave"></div>
+        <div class="rlabel">Missing — not added automatically; add only if you truly have it</div>
+        <div class="chips" id="chipsMiss"></div>
+        <div id="notesWrap"></div>
+        <div id="warnWrap"></div>
+        <div class="costLine" id="costLine"></div>
+        <div class="applyRow">
+          <button class="apply" id="btnApply">Apply to editor</button>
+          <button class="revert" id="btnRevert" style="display:none">Undo — restore my original</button>
+        </div>
+        <div class="miniNote" style="margin-top:6px">“Apply” fills the fields below with the tailored text. Nothing downloads until you click Generate.</div>
+      </div>
+    </div>
 
     <div class="group">
       <label class="head">Header</label>
@@ -388,6 +464,102 @@ $('btnPreview').addEventListener('click',exactPreview);
 $('btnGenerate').addEventListener('click',generate);
 $('btnCloseDlg').addEventListener('click',()=>$('pdfDialog').close());
 window.addEventListener('resize',scalePaper);
+
+// ---------- JD tailoring ----------
+let preTailorSnapshot=null;
+
+function setFields(ed){
+  $('summary').value = ed.summary;
+  $('skills').value = ed.skills;
+  $('education').value = ed.education;
+  $('certifications').value = ed.certifications;
+  const cards=document.querySelectorAll('.subcard');
+  ed.experience.forEach((j,i)=>{
+    if(!cards[i]) return;
+    cards[i].querySelector('.j-company').value=j.company;
+    cards[i].querySelector('.j-title').value=j.job_title;
+    cards[i].querySelector('.j-meta').value=j.meta;
+    cards[i].querySelector('.j-bullets').value=j.bullets;
+  });
+  refresh();
+}
+
+function snapshotFields(){
+  const d=collect();
+  return {summary:d.summary,skills:d.skills,education:d.education,
+    certifications:d.certifications,
+    experience:d.experience.map(j=>({company:j.company,job_title:j.job_title,
+      meta:j.meta,bullets:j.bullets}))};
+}
+
+async function checkAi(){
+  try{const r=await fetch('/api/ai_status');const j=await r.json();
+    if(!j.enabled){$('aiOff').style.display='block';}
+  }catch(e){}
+}
+checkAi();
+
+async function doTailor(){
+  const jd=$('jd').value.trim();
+  if(jd.length<40){alert('Paste a fuller job description first.');return;}
+  const btn=$('btnTailor'), spin=$('tailorSpin');
+  btn.disabled=true; spin.classList.add('on');
+  try{
+    const payload=collect(); payload.jd=jd;
+    const r=await fetch('/api/tailor',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok){alert('Tailoring failed: '+(j.error||'unknown error'));return;}
+    renderReport(j);
+  }catch(e){alert('Tailoring error: '+e.message);}
+  finally{btn.disabled=false; spin.classList.remove('on');}
+}
+
+let lastTailored=null;
+function renderReport(j){
+  lastTailored=j;
+  const rep=$('report'); rep.classList.add('on');
+  const s=j.match.score;
+  const badge=$('scoreBadge'); badge.textContent=s+'%';
+  badge.classList.remove('warn','low');
+  if(s<60)badge.classList.add('low'); else if(s<80)badge.classList.add('warn');
+  $('scoreLbl').textContent=`Your resume covers ${s}% of this job's key terms.`;
+
+  $('chipsHave').innerHTML=(j.match.matched.length?j.match.matched:['—'])
+    .map(k=>`<span class="chip have">${esc(k)}</span>`).join('');
+  $('chipsMiss').innerHTML=(j.match.missing.length?j.match.missing:['none 🎉'])
+    .map(k=>`<span class="chip miss">${esc(k)}</span>`).join('');
+
+  $('notesWrap').innerHTML = (j.notes&&j.notes.length)
+    ? '<div class="rlabel">What changed</div><ul class="notes">'+
+      j.notes.map(n=>`<li>${esc(n)}</li>`).join('')+'</ul>' : '';
+
+  $('warnWrap').innerHTML = (j.warnings&&j.warnings.length)
+    ? '<div class="warnBox"><b>Verify these before sending:</b><ul class="notes" style="color:inherit">'+
+      j.warnings.map(w=>`<li>${esc(w)}</li>`).join('')+'</ul></div>' : '';
+
+  const c=j.cost;
+  $('costLine').textContent=
+    `This tailoring used ${c.input_tokens+c.cache_read_tokens} input + `+
+    `${c.output_tokens} output tokens ≈ $${c.usd.toFixed(4)}.`;
+}
+
+function applyTailored(){
+  if(!lastTailored)return;
+  preTailorSnapshot=snapshotFields();
+  setFields(lastTailored.editor);
+  $('btnRevert').style.display='inline-block';
+}
+function revertTailored(){
+  if(!preTailorSnapshot)return;
+  setFields(preTailorSnapshot);
+  $('btnRevert').style.display='none';
+}
+
+$('btnTailor').addEventListener('click',doTailor);
+$('btnApply').addEventListener('click',applyTailored);
+$('btnRevert').addEventListener('click',revertTailored);
+
 refresh();
 </script>
 </body>

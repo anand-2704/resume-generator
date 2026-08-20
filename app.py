@@ -18,6 +18,7 @@ import re
 from flask import Flask, request, jsonify, send_file, render_template
 
 import resume_builder as rb
+import tailor as T
 
 app = Flask(__name__)
 
@@ -110,6 +111,55 @@ def api_generate():
     fname = data["filename"] + ".pdf"
     return send_file(io.BytesIO(pdf), mimetype="application/pdf",
                      as_attachment=True, download_name=fname)
+
+
+@app.route("/api/tailor", methods=["POST"])
+def api_tailor():
+    """Read a JD, tailor the CURRENT resume content to it, and return the
+    tailored fields + match report + notes + cost. Does NOT download; the
+    browser loads the result into the editor for review before generating."""
+    payload = request.get_json(force=True)
+    jd_text = (payload.get("jd") or "").strip()
+    # tailor against whatever is currently in the editor (their master)
+    master = _payload_to_data(payload)
+    try:
+        result = T.run_tailor(master, jd_text)
+    except T.TailorError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:  # noqa
+        return jsonify({"ok": False,
+                        "error": f"Unexpected error while tailoring: {e}"}), 500
+
+    t = result["tailored"]
+    # shape tailored content for the editor (textarea-friendly strings)
+    editor = {
+        "summary": t["summary"],
+        "skills": "\n".join(t["skills"]),
+        "experience": [{
+            "company": j["company"], "job_title": j["job_title"],
+            "meta": j["meta"], "bullets": "\n".join(j["bullets"]),
+        } for j in t["experience"]],
+        "education": "\n".join(t["education"]),
+        "certifications": "\n".join(t["certifications"]),
+    }
+    # fit estimate for the tailored version
+    metrics = _metrics(t)
+    return jsonify({
+        "ok": True,
+        "editor": editor,
+        "match": result["match"],
+        "jd": result["jd"],
+        "notes": result["notes"],
+        "warnings": result["warnings"],
+        "cost": result["cost"],
+        "metrics": metrics,
+    })
+
+
+@app.route("/api/ai_status")
+def api_ai_status():
+    import os
+    return jsonify({"enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())})
 
 
 if __name__ == "__main__":
