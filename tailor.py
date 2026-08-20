@@ -253,16 +253,27 @@ def match_resume(jd_data, master_text):
 TAILOR_SYS = (
     "You tailor a candidate's resume to a specific job, and you are strictly "
     "truthful. HARD RULES:\n"
-    "1. Use ONLY facts present in the MASTER RESUME. Never invent skills, "
-    "tools, employers, titles, dates, metrics, or outcomes.\n"
-    "2. You MAY rephrase bullets to mirror the job's terminology, reorder "
-    "skills and bullets by relevance, tailor the summary, and drop content "
-    "that is irrelevant to this job.\n"
-    "3. Every number, tool, and claim in your output must trace to the master "
-    "resume. If the job wants something the candidate lacks, DO NOT add it.\n"
-    "4. Keep the same companies, titles, dates, education, and certifications "
+    "1. Use ONLY facts present in the MASTER RESUME, PLUS any skills in the "
+    "CONFIRMED SKILLS list (skills the candidate has explicitly told you they "
+    "have really used but hadn't written down). Never invent skills, tools, "
+    "employers, titles, or dates beyond these.\n"
+    "2. NEVER invent metrics, numbers, outcomes, projects, or accomplishments. "
+    "Every number and every result must already exist in the master resume. "
+    "Do not attach a new metric to a confirmed skill.\n"
+    "3. For each CONFIRMED SKILL, you MAY: add it to the skills list, and weave "
+    "it into an EXISTING bullet that describes real work where that tool "
+    "plausibly applies — by naming the tool within that real work (e.g. "
+    "'Built Power BI dashboards using DAX measures…' if a dashboard bullet "
+    "exists). You are describing the SAME real work, now naming a tool the "
+    "candidate has used. You must NOT create a brand-new accomplishment or "
+    "metric around a confirmed skill.\n"
+    "4. You MAY rephrase bullets to mirror the job's terminology, reorder "
+    "skills and bullets by relevance, tailor the summary, and drop irrelevant "
+    "content.\n"
+    "5. Do NOT add any missing keyword that is NOT in the confirmed list.\n"
+    "6. Keep the same companies, titles, dates, education, and certifications "
     "exactly as in the master (you may reorder bullets within a job).\n"
-    "5. Preserve the candidate's real seniority; do not inflate it.\n"
+    "7. Preserve the candidate's real seniority; do not inflate it.\n"
     "Return ONLY JSON matching the requested schema, no prose. You may use "
     "**double asterisks** around words to mark them bold in the output."
 )
@@ -278,26 +289,39 @@ TAILOR_SCHEMA = (
 )
 
 
-def tailor_resume(master_data, master_text, jd_text, jd_data, match):
+def tailor_resume(master_data, master_text, jd_text, jd_data, match,
+                  confirmed_skills=None):
+    confirmed_skills = confirmed_skills or []
+    confirmed_line = (
+        "CONFIRMED SKILLS (the candidate says they have really used these — "
+        "you may add them to skills and weave into existing real bullets, but "
+        "never invent metrics/projects around them): "
+        + (", ".join(confirmed_skills) if confirmed_skills else "(none)")
+    )
     user = (
         f"TARGET JOB DESCRIPTION:\n{jd_text}\n\n"
         f"EXTRACTED JD SIGNALS:\n{json.dumps(jd_data)}\n\n"
         f"KEYWORD MATCH (already computed):\n"
         f"matched={match['matched']}\nmissing={match['missing']}\n\n"
+        f"{confirmed_line}\n\n"
         "TASK: Produce a tailored version of the resume for THIS job.\n"
         "- Rewrite the SUMMARY to lead with the candidate's real strengths "
-        "most relevant to this job, echoing the job's language where truthful.\n"
+        "most relevant to this job, echoing the job's language where truthful. "
+        "You may mention confirmed skills here if they fit naturally.\n"
         "- Reorder the SKILLS category lines so the most job-relevant appear "
-        "first; keep each category's real contents (you may drop a clearly "
-        "irrelevant item, but do not add new tools).\n"
+        "first; keep each category's real contents. ADD each confirmed skill "
+        "to the most appropriate category (do not add non-confirmed missing "
+        "keywords).\n"
         "- For each job, select and REORDER the most relevant bullets first, "
-        "and rephrase them to mirror the JD's terminology — but only using "
-        "work actually described in the master. You may lightly trim weak "
-        "bullets for space, keeping the strongest, most relevant ones.\n"
-        "- Do NOT add any 'missing' keyword the candidate cannot support.\n"
+        "and rephrase them to mirror the JD's terminology using work actually "
+        "described in the master. Where a confirmed skill plausibly applies to "
+        "an existing bullet's real work, name it within that bullet — WITHOUT "
+        "inventing any new metric, project, or outcome.\n"
+        "- Do NOT add any 'missing' keyword that is not in the confirmed list.\n"
         "- Keep companies/titles/dates/education/certifications truthful.\n"
-        "- In notes[], briefly list what you emphasised and any JD requirement "
-        "the candidate does not appear to meet (so the human can decide).\n\n"
+        "- In notes[], briefly list what you emphasised, which confirmed skills "
+        "you added and where, and any JD requirement still unmet (so the human "
+        "can decide).\n\n"
         f"Return ONLY JSON with this exact schema:\n{TAILOR_SCHEMA}"
     )
     system = [
@@ -343,10 +367,10 @@ def tailor_resume(master_data, master_text, jd_text, jd_data, match):
 _NUM_RE = re.compile(r"\$?\d[\d,\.]*\s?(?:%|k|m|b|pb|tb|x|\+)?", re.I)
 
 
-def quality_check(master_text, tailored):
-    """Warn if a number or a capitalised tool token appears in the tailored
-    output that never appeared in the master (possible fabrication)."""
-    master_norm = _norm(master_text)
+def quality_check(master_text, tailored, confirmed_skills=None):
+    """Warn if a NUMBER appears in the tailored output that never appeared in
+    the master (possible fabricated metric). Confirmed skills are allowed as
+    tool names, so we only police numbers/metrics here."""
     master_nums = set(re.findall(r"\d[\d,\.]*", master_text))
     warnings = []
 
@@ -395,27 +419,65 @@ def cost_from_usage(usages):
 
 
 # --------------------------------------------------------------------------
-# Orchestrator
+# Two-stage orchestration
 # --------------------------------------------------------------------------
-def run_tailor(master_data, jd_text):
+# Rough token estimate for showing an up-front cost before the paid rewrite.
+def estimate_tailor_cost(master_text, jd_text):
+    # Haiku: $1/MTok in, $5/MTok out. Master is cached after first call.
+    approx_in = 900 + len(jd_text) // 4        # jd + instructions (master cached)
+    approx_out = 1500
+    usd = (approx_in * 1.0 + approx_out * 5.0) / 1_000_000
+    return round(usd, 4)
+
+
+def analyze_jd(master_data, jd_text):
+    """STAGE 1 (cheap): extract JD signals + keyword match. No rewrite."""
     if not jd_text or len(jd_text.strip()) < 40:
         raise TailorError("Please paste a fuller job description (a few lines "
-                          "at least) so the tailoring has something to work with.")
+                          "at least) so the analysis has something to work with.")
     master_text = master_to_text(master_data)
-    usages = []
-
-    jd_data, u1 = extract_jd(jd_text)
-    usages.append(u1)
-
+    jd_data, usage = extract_jd(jd_text)
     match = match_resume(jd_data, master_text)
+    cost = cost_from_usage([usage])
+    tailor_estimate = estimate_tailor_cost(master_text, jd_text)
+    return {
+        "jd": jd_data,
+        "match": match,
+        "analysis_cost": cost,
+        "tailor_cost_estimate": tailor_estimate,
+    }
+
+
+def generate_tailored(master_data, jd_text, confirmed_skills=None):
+    """STAGE 2 (paid rewrite): runs once, using confirmed skills."""
+    if not jd_text or len(jd_text.strip()) < 40:
+        raise TailorError("Job description missing or too short.")
+    master_text = master_to_text(master_data)
+    confirmed_skills = confirmed_skills or []
+
+    # re-extract + match so the rewrite has fresh signals (cheap; also lets the
+    # match reflect confirmed skills as now-covered)
+    jd_data, u1 = extract_jd(jd_text)
+    match = match_resume(jd_data, master_text)
+    # confirmed skills count as matched for the reported score
+    if confirmed_skills:
+        cs_norm = {_norm(c) for c in confirmed_skills}
+        still_missing = []
+        for k in match["missing"]:
+            if _norm(k) in cs_norm:
+                match["matched"].append(k)
+            else:
+                still_missing.append(k)
+        match["missing"] = still_missing
+        tot = len(match["matched"]) + len(match["missing"])
+        match["score"] = round(100 * len(match["matched"]) / tot) if tot else 100
 
     tailored, notes, u2 = tailor_resume(
-        master_data, master_text, jd_text, jd_data, match)
-    usages.append(u2)
+        master_data, master_text, jd_text, jd_data, match,
+        confirmed_skills=confirmed_skills)
 
-    warnings = quality_check(master_text, tailored)
-    cost = cost_from_usage(usages)
-
+    warnings = quality_check(master_text, tailored, confirmed_skills)
+    cost = cost_from_usage([u1, u2])
     return {
         "jd": jd_data,
         "match": match,
@@ -423,4 +485,5 @@ def run_tailor(master_data, jd_text):
         "notes": notes,
         "warnings": warnings,
         "cost": cost,
+        "confirmed_skills": confirmed_skills,
     }

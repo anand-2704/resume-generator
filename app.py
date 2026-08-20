@@ -113,17 +113,39 @@ def api_generate():
                      as_attachment=True, download_name=fname)
 
 
-@app.route("/api/tailor", methods=["POST"])
-def api_tailor():
-    """Read a JD, tailor the CURRENT resume content to it, and return the
-    tailored fields + match report + notes + cost. Does NOT download; the
-    browser loads the result into the editor for review before generating."""
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    """STAGE 1 (cheap): read JD, extract keywords, score match, list missing
+    skills for the user to accept/reject. No rewrite, minimal cost."""
     payload = request.get_json(force=True)
     jd_text = (payload.get("jd") or "").strip()
-    # tailor against whatever is currently in the editor (their master)
     master = _payload_to_data(payload)
     try:
-        result = T.run_tailor(master, jd_text)
+        result = T.analyze_jd(master, jd_text)
+    except T.TailorError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:  # noqa
+        return jsonify({"ok": False,
+                        "error": f"Unexpected error while analyzing: {e}"}), 500
+    return jsonify({
+        "ok": True,
+        "match": result["match"],
+        "jd": result["jd"],
+        "analysis_cost": result["analysis_cost"],
+        "tailor_cost_estimate": result["tailor_cost_estimate"],
+    })
+
+
+@app.route("/api/generate_tailored", methods=["POST"])
+def api_generate_tailored():
+    """STAGE 2 (paid rewrite): runs once. Uses accepted/confirmed skills in
+    skills list + bullets. Returns tailored fields for review before download."""
+    payload = request.get_json(force=True)
+    jd_text = (payload.get("jd") or "").strip()
+    confirmed = payload.get("confirmed_skills") or []
+    master = _payload_to_data(payload)
+    try:
+        result = T.generate_tailored(master, jd_text, confirmed_skills=confirmed)
     except T.TailorError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:  # noqa
@@ -131,7 +153,6 @@ def api_tailor():
                         "error": f"Unexpected error while tailoring: {e}"}), 500
 
     t = result["tailored"]
-    # shape tailored content for the editor (textarea-friendly strings)
     editor = {
         "summary": t["summary"],
         "skills": "\n".join(t["skills"]),
@@ -142,16 +163,15 @@ def api_tailor():
         "education": "\n".join(t["education"]),
         "certifications": "\n".join(t["certifications"]),
     }
-    # fit estimate for the tailored version
     metrics = _metrics(t)
     return jsonify({
         "ok": True,
         "editor": editor,
         "match": result["match"],
-        "jd": result["jd"],
         "notes": result["notes"],
         "warnings": result["warnings"],
         "cost": result["cost"],
+        "confirmed_skills": result["confirmed_skills"],
         "metrics": metrics,
     })
 

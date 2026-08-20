@@ -148,11 +148,26 @@
   .warnBox{background:#3a2a12;border:1px solid #6b4f1c;border-radius:7px;
        padding:8px 10px;margin-top:8px;font-size:12px;color:#ffe0a6}
   .costLine{font-size:11.5px;color:#9dc4ba;margin-top:8px}
-  .applyRow{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .applyRow{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center}
   button.apply{background:#2ea988;color:#04231c;font-weight:700}
   button.apply:hover{background:#39c39d}
   button.revert{background:transparent;border:1px solid #3a6a5c;color:#bfe0d6}
   .miniNote{font-size:11px;color:#9dc4ba}
+
+  /* missing-skill accept/reject list */
+  .missList{display:flex;flex-direction:column;gap:6px;margin:6px 0 2px}
+  .missItem{display:flex;align-items:center;gap:10px;background:#0b241e;
+       border:1px solid #2a5a4d;border-radius:7px;padding:7px 10px}
+  .missItem .kw{flex:1;font-size:12.5px;color:#eaf3f0}
+  .missItem label{display:flex;align-items:center;gap:5px;font-size:11.5px;
+       color:#bfe0d6;cursor:pointer;user-select:none}
+  .missItem input[type=checkbox]{width:15px;height:15px;accent-color:#2ea988;cursor:pointer}
+  .missItem.have{border-color:#1c6a55;background:#0f2f26}
+  .missNone{font-size:12px;color:#8ff0cf}
+  .costBox{margin-top:14px;border-top:1px solid #21524644;padding-top:12px;display:none}
+  .costBox.on{display:block}
+  .costMain{font-size:12.5px;color:#eaf3f0;margin-bottom:6px}
+  .costMain b{color:#8ff0cf}
 </style>
 </head>
 <body>
@@ -172,8 +187,8 @@
         everything before you download.</div>
       <textarea id="jd" placeholder="Paste the full job description here…"></textarea>
       <div class="bar">
-        <button class="go" id="btnTailor">Tailor my resume</button>
-        <span class="spin" id="tailorSpin">Reading the job & tailoring… (~10s)</span>
+        <button class="go" id="btnAnalyze">Analyze job</button>
+        <span class="spin" id="analyzeSpin">Reading the job… (~3s)</span>
       </div>
       <div class="aiOff" id="aiOff" style="display:none">
         AI tailoring is off because no API key is set on the server. Add
@@ -187,16 +202,29 @@
         </div>
         <div class="rlabel">Matched keywords</div>
         <div class="chips" id="chipsHave"></div>
-        <div class="rlabel">Missing — not added automatically; add only if you truly have it</div>
-        <div class="chips" id="chipsMiss"></div>
-        <div id="notesWrap"></div>
-        <div id="warnWrap"></div>
-        <div class="costLine" id="costLine"></div>
-        <div class="applyRow">
-          <button class="apply" id="btnApply">Apply to editor</button>
-          <button class="revert" id="btnRevert" style="display:none">Undo — restore my original</button>
+
+        <div class="rlabel" id="missLabel">Missing — tick any you have truly used; they'll be added to skills & bullets</div>
+        <div class="missList" id="missList"></div>
+
+        <div class="costBox" id="costBox">
+          <div class="costMain" id="costMain"></div>
+          <div class="applyRow">
+            <button class="apply" id="btnGenTailored">Generate tailored resume</button>
+            <span class="spin" id="genSpin">Tailoring your resume… (~10s)</span>
+          </div>
+          <div class="miniNote">This is the paid step. Analysis above was near-free. Nothing downloads yet — you'll review first.</div>
         </div>
-        <div class="miniNote" style="margin-top:6px">“Apply” fills the fields below with the tailored text. Nothing downloads until you click Generate.</div>
+
+        <div id="resultWrap" style="display:none">
+          <div id="notesWrap"></div>
+          <div id="warnWrap"></div>
+          <div class="costLine" id="costLine"></div>
+          <div class="applyRow">
+            <button class="apply" id="btnApply">Apply to editor</button>
+            <button class="revert" id="btnRevert" style="display:none">Undo — restore my original</button>
+          </div>
+          <div class="miniNote" style="margin-top:6px">“Apply” fills the fields below. Review everything, then click Generate &amp; download at the bottom.</div>
+        </div>
       </div>
     </div>
 
@@ -465,8 +493,10 @@ $('btnGenerate').addEventListener('click',generate);
 $('btnCloseDlg').addEventListener('click',()=>$('pdfDialog').close());
 window.addEventListener('resize',scalePaper);
 
-// ---------- JD tailoring ----------
+// ---------- JD tailoring (two-stage) ----------
 let preTailorSnapshot=null;
+let lastAnalysis=null;
+let lastTailored=null;
 
 function setFields(ed){
   $('summary').value = ed.summary;
@@ -483,7 +513,6 @@ function setFields(ed){
   });
   refresh();
 }
-
 function snapshotFields(){
   const d=collect();
   return {summary:d.summary,skills:d.skills,education:d.education,
@@ -499,25 +528,28 @@ async function checkAi(){
 }
 checkAi();
 
-async function doTailor(){
+// STAGE 1 — cheap analyze
+async function analyzeJob(){
   const jd=$('jd').value.trim();
   if(jd.length<40){alert('Paste a fuller job description first.');return;}
-  const btn=$('btnTailor'), spin=$('tailorSpin');
+  const btn=$('btnAnalyze'), spin=$('analyzeSpin');
   btn.disabled=true; spin.classList.add('on');
+  // reset any prior result
+  $('resultWrap').style.display='none';
+  $('btnRevert').style.display='none';
   try{
     const payload=collect(); payload.jd=jd;
-    const r=await fetch('/api/tailor',{method:'POST',
+    const r=await fetch('/api/analyze',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const j=await r.json();
-    if(!j.ok){alert('Tailoring failed: '+(j.error||'unknown error'));return;}
-    renderReport(j);
-  }catch(e){alert('Tailoring error: '+e.message);}
+    if(!j.ok){alert('Analysis failed: '+(j.error||'unknown error'));return;}
+    lastAnalysis=j;
+    renderAnalysis(j);
+  }catch(e){alert('Analysis error: '+e.message);}
   finally{btn.disabled=false; spin.classList.remove('on');}
 }
 
-let lastTailored=null;
-function renderReport(j){
-  lastTailored=j;
+function renderAnalysis(j){
   const rep=$('report'); rep.classList.add('on');
   const s=j.match.score;
   const badge=$('scoreBadge'); badge.textContent=s+'%';
@@ -527,21 +559,68 @@ function renderReport(j){
 
   $('chipsHave').innerHTML=(j.match.matched.length?j.match.matched:['—'])
     .map(k=>`<span class="chip have">${esc(k)}</span>`).join('');
-  $('chipsMiss').innerHTML=(j.match.missing.length?j.match.missing:['none 🎉'])
-    .map(k=>`<span class="chip miss">${esc(k)}</span>`).join('');
+
+  const miss=j.match.missing;
+  if(!miss.length){
+    $('missLabel').style.display='none';
+    $('missList').innerHTML='<div class="missNone">No missing keywords — great match! 🎉</div>';
+  }else{
+    $('missLabel').style.display='block';
+    $('missList').innerHTML=miss.map((k,i)=>
+      `<div class="missItem" id="miss_${i}">
+        <span class="kw">${esc(k)}</span>
+        <label><input type="checkbox" class="missChk" data-kw="${esc(k)}"
+          onchange="this.closest('.missItem').classList.toggle('have',this.checked)"> I have used this</label>
+      </div>`).join('');
+  }
+
+  // cost box
+  const a=j.analysis_cost, est=j.tailor_cost_estimate;
+  $('costMain').innerHTML=
+    `Analysis just cost <b>$${a.usd.toFixed(4)}</b>. `+
+    `Generating the tailored resume will cost about <b>$${est.toFixed(4)}</b> (one paid step).`;
+  $('costBox').classList.add('on');
+}
+
+// STAGE 2 — paid rewrite
+async function generateTailored(){
+  const jd=$('jd').value.trim();
+  const confirmed=[...document.querySelectorAll('.missChk:checked')]
+    .map(c=>c.getAttribute('data-kw'));
+  const btn=$('btnGenTailored'), spin=$('genSpin');
+  btn.disabled=true; spin.classList.add('on');
+  try{
+    const payload=collect(); payload.jd=jd; payload.confirmed_skills=confirmed;
+    const r=await fetch('/api/generate_tailored',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok){alert('Tailoring failed: '+(j.error||'unknown error'));return;}
+    lastTailored=j;
+    renderResult(j);
+  }catch(e){alert('Tailoring error: '+e.message);}
+  finally{btn.disabled=false; spin.classList.remove('on');}
+}
+
+function renderResult(j){
+  // update score to reflect confirmed skills now covered
+  const s=j.match.score; const badge=$('scoreBadge');
+  badge.textContent=s+'%'; badge.classList.remove('warn','low');
+  if(s<60)badge.classList.add('low'); else if(s<80)badge.classList.add('warn');
+  $('scoreLbl').textContent=`Tailored match: ${s}% of this job's key terms covered.`;
 
   $('notesWrap').innerHTML = (j.notes&&j.notes.length)
     ? '<div class="rlabel">What changed</div><ul class="notes">'+
       j.notes.map(n=>`<li>${esc(n)}</li>`).join('')+'</ul>' : '';
-
   $('warnWrap').innerHTML = (j.warnings&&j.warnings.length)
     ? '<div class="warnBox"><b>Verify these before sending:</b><ul class="notes" style="color:inherit">'+
       j.warnings.map(w=>`<li>${esc(w)}</li>`).join('')+'</ul></div>' : '';
-
   const c=j.cost;
   $('costLine').textContent=
-    `This tailoring used ${c.input_tokens+c.cache_read_tokens} input + `+
-    `${c.output_tokens} output tokens ≈ $${c.usd.toFixed(4)}.`;
+    `Tailoring used ${c.input_tokens+c.cache_read_tokens} input + `+
+    `${c.output_tokens} output tokens ≈ $${c.usd.toFixed(4)}.`
+    + (j.confirmed_skills&&j.confirmed_skills.length
+       ? `  Added confirmed skills: ${j.confirmed_skills.join(', ')}.` : '');
+  $('resultWrap').style.display='block';
 }
 
 function applyTailored(){
@@ -556,7 +635,8 @@ function revertTailored(){
   $('btnRevert').style.display='none';
 }
 
-$('btnTailor').addEventListener('click',doTailor);
+$('btnAnalyze').addEventListener('click',analyzeJob);
+$('btnGenTailored').addEventListener('click',generateTailored);
 $('btnApply').addEventListener('click',applyTailored);
 $('btnRevert').addEventListener('click',revertTailored);
 

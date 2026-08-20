@@ -68,23 +68,48 @@ Open `resume_builder.py` and edit `DEFAULT_DATA` near the bottom — it maps
 - Warning threshold is `WARN_PCT = 95.0` in `app.py` — change it if you want
   more or less safety margin.
 
-## Job-description tailoring (AI, optional)
+## Job-description tailoring (AI, optional) — two-stage, cost-controlled
 
-Paste a job description into the **"Tailor to a job"** box at the top, click
-**Tailor my resume**, and the tool:
+Paste a job description into the **"Tailor to a job"** box at the top. The flow
+is split into a cheap analysis step and a paid rewrite step, so you only pay
+for rewrites you actually want:
 
-1. Extracts the job's required/preferred skills, tools, keywords and seniority.
-2. Scores how well your current resume matches, and lists **matched** and
-   **missing** keywords.
-3. Rewrites your summary, reorders your skills, and selects + rephrases your
-   experience bullets to mirror the job's language — **using only your real
-   experience**. It never invents skills, tools, numbers, or employers.
-4. Runs a grounding check that flags any number in the output not found in
-   your master resume (so you can verify before sending).
-5. Shows the cost of that tailoring in tokens and dollars.
+**Stage 1 — Analyze job (near-free, ~$0.003)**
+Click **Analyze job**. The tool extracts the job's skills/keywords/seniority,
+scores how well your current resume matches, and lists:
+- **Matched** keywords (green).
+- **Missing** keywords, each with an **"I have used this"** checkbox.
 
-Nothing changes until you click **Apply to editor** (and you can **Undo**).
-Nothing downloads until you click **Generate**. You review everything first.
+It then shows the analysis cost and an estimate for the paid step. If the match
+is poor and you don't want to proceed, you stop here having spent ~$0.003.
+
+**Stage 2 — Generate tailored resume (the paid rewrite, ~$0.008–0.02)**
+Tick any missing keywords you have **genuinely used**, then click **Generate
+tailored resume**. The rewrite runs **once** and:
+- Rewrites your summary and reorders skills to match the job.
+- Selects and rephrases your experience bullets to mirror the job's language.
+- Adds each **confirmed** skill to your skills list **and** weaves it into an
+  existing bullet that describes real work where that tool applies.
+
+**Review, then download.** The result shows what changed, any confirmed skills
+added, and a grounding check. Click **Apply to editor** (reversible with
+**Undo**), review the fields, then **Generate & download**.
+
+### Honesty guardrails (by design)
+
+- The AI uses only your master resume **plus** skills you explicitly confirm
+  you've used. It never adds a missing keyword you didn't confirm.
+- Confirmed skills are added truthfully — named within real work you already
+  listed. The AI is instructed **never to invent a metric, number, project, or
+  accomplishment**, even around a confirmed skill.
+- A grounding check flags any number in the output not found in your master
+  resume, so a fabricated metric can't slip through unnoticed.
+- Companies, titles, dates, education and certifications stay locked to your
+  real values.
+- You approve every change before it reaches the PDF.
+
+> This tool ends at "download tailored PDF." It does **not** auto-submit
+> applications or act on your email/accounts — you apply yourself.
 
 ### Enabling AI tailoring — set your API key
 
@@ -105,16 +130,3 @@ server's environment. If it leaks, delete it in the console and make a new one.
 The model is `claude-haiku-4-5` (cheapest). Your master resume is sent as a
 cached block so repeated tailoring for different jobs is billed at ~10% input
 cost. To change the model, edit `MODEL` in `tailor.py`.
-
-### Honesty guardrails (by design)
-
-- Only content in your master resume is used; missing keywords are **shown,
-  never auto-added**.
-- Companies, titles, dates, education and certifications are locked to your
-  real values (bullets may be reordered/rephrased within a job).
-- A quality pass flags any unfamiliar number for you to verify.
-- You approve every change before it reaches the PDF.
-
-> This tool ends at "download tailored PDF." It does **not** auto-submit
-> applications or act on your email/accounts — you apply yourself, which keeps
-> you compliant with job platforms' terms.
