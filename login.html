@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Resume Generator</title>
+<style>
+  :root{--ink:#16202b;--accent:#1f6f5c;--line:#c3ced8;--bg:#eef1f4;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,
+       "Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);
+       display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;
+       padding:32px 30px;width:340px;box-shadow:0 6px 30px rgba(20,40,60,.10)}
+  h1{font-size:18px;margin:0 0 4px}
+  p.sub{font-size:13px;color:#5a6b7a;margin:0 0 20px}
+  label{font-size:12px;font-weight:600;color:#5a6b7a;display:block;margin-bottom:6px}
+  input[type=password]{width:100%;border:1px solid var(--line);border-radius:8px;
+       padding:11px 12px;font-size:14px;margin-bottom:14px}
+  input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;
+       padding:11px;font-size:14px;font-weight:700;cursor:pointer}
+  button:hover{background:#195a4b}
+  .err{background:#fdecea;border:1px solid #f5c6c0;color:#b23b2e;font-size:13px;
+       border-radius:8px;padding:9px 11px;margin-bottom:14px}
+</style>
+</head>
+<body>
+  <form class="card" method="POST" action="/login">
+    <h1>Resume Generator</h1>
+    <p class="sub">Enter the password to continue.</p>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus autocomplete="current-password">
+    <button type="submit">Enter</button>
+  </form>
+</body>
+</html>
