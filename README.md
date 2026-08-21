@@ -1,10 +1,44 @@
-# Resume Generator — one-page, ATS-safe
+# Resume Generator — ATS-safe, auto multi-page
 
 A small web app that turns pasted-in text into a PDF résumé that **exactly
 matches** the reference layout (A4, Calibri/Carlito, section rules, bold
 keywords, right-aligned dates). Built for **ATS parsing**: no tables, no
 columns, no text boxes, no images — just clean, selectable, linear text that
 Workday / Greenhouse / Taleo / iCIMS read correctly.
+
+## Access & accounts
+
+The site is protected by a single shared **password gate**. Visitors see a
+login screen and must enter the password before using the tool; a session
+cookie keeps them signed in, and there's a **Log out** link.
+
+- Default password: `Anand!@#`
+- To change it without editing code, set the `APP_PASSWORD` environment
+  variable on the server.
+- Also set `FLASK_SECRET` (any long random string) so logins survive server
+  restarts. Without it a random secret is used and everyone is logged out on
+  each redeploy.
+
+This is a single shared password (good for a personal/friends tool), **not**
+individual user accounts.
+
+## My Details — save & restore (per browser)
+
+The **"My Details"** bar at the top of the editor has:
+- **Save my details** — stores everything currently in the form in *this
+  browser* (localStorage). It reloads automatically on your next visit.
+- **Clear / restore blank** — wipes the saved details and blanks the form so
+  someone else can enter their own resume on their own device.
+
+Saved data lives only in that browser on that device (no server storage, no
+accounts). Clearing browser data or switching devices means re-entering.
+
+## Pages
+
+The PDF **flows onto additional pages automatically** when content exceeds one
+page — nothing is ever clipped. The fill meter shows the current page count
+("1 page" / "2 pages") as information. Trim content if you prefer a single
+page; section headings are kept with their content across page breaks.
 
 ## What you get
 

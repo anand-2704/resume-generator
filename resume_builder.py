@@ -284,6 +284,16 @@ class Layout:
         # Last glyph bottom must not cross the printable bottom edge.
         return self.content_bottom <= (PAGE_H - MARGIN_B) + 0.3
 
+    def page_count(self):
+        # How many pages the content will actually occupy after pagination.
+        _, pages = paginate(self.ops)
+        return pages
+
+    def fill_pct_of_page(self):
+        # Fraction of a single page the content fills (can exceed 100).
+        cap = (PAGE_H - MARGIN_B) - MARGIN_T
+        return round(100.0 * (self.content_bottom - MARGIN_T) / cap, 1)
+
 
 # --------------------------------------------------------------------------
 # Rendering
@@ -299,9 +309,14 @@ def _draw_line_runs(c, runs, x, baseline_y, size, italic=False):
 
 def render(layout, c):
     register_fonts()
-    for op in layout.ops:
-        top = op["top"]
-        baseline = PAGE_H - top - op.get("size", SZ_BODY)  # convert top-origin
+    ops, num_pages = paginate(layout.ops)
+    current_page = 1
+    for op in ops:
+        # page break when this op belongs to a later page
+        while op.get("page", 1) > current_page:
+            c.showPage()
+            current_page += 1
+        top = op["ptop"]          # within-page top-origin coordinate
         kind = op["kind"]
 
         if kind == "center":
@@ -337,7 +352,6 @@ def render(layout, c):
 
         elif kind == "company":
             baseline = PAGE_H - top - SZ_BODY
-            # left: **company** | *title*  (company bold, title bold-italic)
             cx = MARGIN_L
             c.setFont(F_BOLD, SZ_BODY)
             c.drawString(cx, baseline, op["left_bold"])
@@ -348,15 +362,91 @@ def render(layout, c):
             cx += stringWidth(sep, F_BOLD, SZ_BODY)
             c.setFont(F_BI, SZ_BODY)
             c.drawString(cx, baseline, op["left_ital"])
-            # right, right-aligned
             c.setFont(F_BOLD, SZ_BODY)
             rw = stringWidth(op["right"], F_BOLD, SZ_BODY)
             c.drawString(PAGE_W - MARGIN_R - rw, baseline, op["right"])
 
+    return num_pages
+
 
 # --------------------------------------------------------------------------
-# Public API
+# Pagination: assign each op a page index + within-page top.
 # --------------------------------------------------------------------------
+PAGE_BOTTOM = PAGE_H - MARGIN_B          # lowest y (top-origin) content may use
+USABLE_H = PAGE_BOTTOM - MARGIN_T        # height of the content area per page
+
+
+def _op_height(op):
+    """Vertical space an op occupies before the next op (approx, top-origin)."""
+    k = op["kind"]
+    if k == "center":
+        return op["size"]
+    if k == "heading":
+        return SZ_HEADING
+    if k == "rule":
+        return 0.0
+    return SZ_BODY
+
+
+def paginate(ops):
+    """Walk ops (which carry a continuous 'top') and reflow them onto pages.
+    Returns the same ops with 'page' and 'ptop' (within-page top) set.
+
+    Rules:
+      * When an op's bottom would exceed PAGE_BOTTOM, start a new page.
+      * A section 'heading' (with its 'rule' and the FIRST following content
+        line) is kept together so a heading never sits alone at a page foot.
+    """
+    if not ops:
+        return ops, 1
+
+    # group indices that must stay together (heading + rule + first content)
+    keep_with_next = set()
+    for i, op in enumerate(ops):
+        if op["kind"] == "heading":
+            # this heading, its rule, and the first real content after it
+            keep_with_next.add(i)                     # heading -> rule
+            j = i + 1
+            if j < len(ops) and ops[j]["kind"] == "rule":
+                keep_with_next.add(j)                 # rule -> first content
+                # also keep the first content line with it (already covered by j)
+
+    # We reflow by walking and tracking the running within-page cursor.
+    # base_top of the current page's first op in the ORIGINAL continuous space.
+    page = 1
+    # offset subtracted from continuous 'top' to get within-page top
+    offset = ops[0]["top"] - MARGIN_T
+    i = 0
+    n = len(ops)
+    while i < n:
+        op = ops[i]
+        ptop = op["top"] - offset
+        bottom = ptop + _op_height(op)
+
+        # does this op (or its keep-together group) overflow the page?
+        overflow = bottom > PAGE_BOTTOM + 0.5
+
+        # if this op must keep with next, check the group's combined bottom
+        if not overflow and i in keep_with_next:
+            # find the end of the keep-with-next chain starting at i
+            k = i
+            while k in keep_with_next and k + 1 < n:
+                k += 1
+            group_bottom = (ops[k]["top"] - offset) + _op_height(ops[k])
+            if group_bottom > PAGE_BOTTOM + 0.5:
+                overflow = True
+
+        if overflow and ptop > MARGIN_T + 0.5:
+            # push this op to the top of a new page
+            page += 1
+            offset = op["top"] - MARGIN_T
+            ptop = MARGIN_T
+
+        op["page"] = page
+        op["ptop"] = ptop
+        i += 1
+
+    return ops, page
 def build_pdf_bytes(data):
     register_fonts()
     layout = Layout(data)
@@ -364,8 +454,8 @@ def build_pdf_bytes(data):
     c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle(data.get("filename", "resume"))
     c.setAuthor(data.get("name", ""))
-    render(layout, c)
-    c.showPage()
+    render(layout, c)      # draws page breaks internally as needed
+    c.showPage()           # finish the final page
     c.save()
     buf.seek(0)
     return buf.read()
@@ -381,6 +471,12 @@ def build_pdf(data, out_path):
 def estimate_fits_one_page(data):
     layout = Layout(data)
     return layout.used_points(), layout.capacity_points(), layout.fits()
+
+
+def estimate_pages(data):
+    """Return (page_count, fill_pct_of_one_page) for the meter."""
+    layout = Layout(data)
+    return layout.page_count(), layout.fill_pct_of_page()
 
 
 # --------------------------------------------------------------------------
