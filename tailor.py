@@ -487,3 +487,40 @@ def generate_tailored(master_data, jd_text, confirmed_skills=None):
         "cost": cost,
         "confirmed_skills": confirmed_skills,
     }
+
+
+# --------------------------------------------------------------------------
+# Cover letter (optional, separate paid call — kept short and grounded)
+# --------------------------------------------------------------------------
+COVER_SYS = (
+    "You write short, professional cover letters that are strictly truthful. "
+    "Use ONLY the candidate's real experience from the MASTER RESUME. Never "
+    "invent employers, metrics, projects, or skills. Keep it to 5-7 sentences, "
+    "professional-standard tone, specific to the job, and free of clichés and "
+    "filler. Do not use placeholders like [Company] — if the company name is "
+    "not given, phrase it naturally without a bracketed blank. Return ONLY the "
+    "cover letter text, no preamble, no sign-off block beyond a simple closing."
+)
+
+
+def generate_cover_letter(master_data, jd_text):
+    if not jd_text or len(jd_text.strip()) < 40:
+        raise TailorError("Please paste the job description first so the cover "
+                          "letter can be tailored to it.")
+    master_text = master_to_text(master_data)
+    user = (
+        f"TARGET JOB DESCRIPTION:\n{jd_text}\n\n"
+        "Write a 5-7 sentence professional cover letter for this job, grounded "
+        "only in the candidate's real experience from the master resume. Lead "
+        "with genuine fit for the role, reference 1-2 concrete, real strengths "
+        "or achievements from the master, and close with brief enthusiasm. "
+        "Plain text, ready to copy."
+    )
+    system = [
+        {"type": "text", "text": COVER_SYS},
+        _cacheable_master_block(master_text),
+    ]
+    text, usage = _call(system, [{"role": "user", "content": user}],
+                        max_tokens=600, temperature=0.4)
+    cost = cost_from_usage([usage])
+    return {"cover_letter": text.strip(), "cost": cost}

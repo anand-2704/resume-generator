@@ -80,6 +80,7 @@ def _payload_to_data(p):
     d["name"] = p.get("name", d["name"]).strip() or d["name"]
     d["title"] = p.get("title", d["title"]).strip() or d["title"]
     d["contact"] = p.get("contact", d["contact"]).strip() or d["contact"]
+    d["linkedin_url"] = (p.get("linkedin_url") or d.get("linkedin_url") or "").strip()
     d["summary"] = p.get("summary", d["summary"]).strip() or d["summary"]
 
     def lines(v, fallback):
@@ -236,6 +237,23 @@ def api_generate_tailored():
         "confirmed_skills": result["confirmed_skills"],
         "metrics": metrics,
     })
+
+
+@app.route("/api/cover_letter", methods=["POST"])
+@login_required
+def api_cover_letter():
+    payload = request.get_json(force=True)
+    jd_text = (payload.get("jd") or "").strip()
+    master = _payload_to_data(payload)
+    try:
+        result = T.generate_cover_letter(master, jd_text)
+    except T.TailorError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:  # noqa
+        return jsonify({"ok": False,
+                        "error": f"Unexpected error: {e}"}), 500
+    return jsonify({"ok": True, "cover_letter": result["cover_letter"],
+                    "cost": result["cost"]})
 
 
 @app.route("/api/ai_status")

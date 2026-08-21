@@ -182,9 +182,11 @@ class Layout:
         self.content_bottom = max(self.content_bottom, self.y + SZ_BODY)
         self.y += dy
 
-    def _center_text(self, text, font, size, extra_after):
+    def _center_text(self, text, font, size, extra_after, link_word=None,
+                     link_url=None):
         self.ops.append({"kind": "center", "text": text, "font": font,
-                         "size": size, "top": self.y})
+                         "size": size, "top": self.y,
+                         "link_word": link_word, "link_url": link_url})
         self._advance(size + extra_after)
 
     def _heading(self, text):
@@ -236,7 +238,9 @@ class Layout:
         # Header
         self._center_text(d["name"], F_BOLD, SZ_NAME, GAP_AFTER_NAME)
         self._center_text(d["title"], F_BOLD, SZ_TITLE, GAP_AFTER_TITLE)
-        self._center_text(d["contact"], F_REG, SZ_CONTACT, GAP_AFTER_CONTACT)
+        self._center_text(d["contact"], F_REG, SZ_CONTACT, GAP_AFTER_CONTACT,
+                          link_word=d.get("linkedin_word") or "LinkedIn",
+                          link_url=d.get("linkedin_url"))
 
         # Summary
         self._heading("Summary")
@@ -322,9 +326,32 @@ def render(layout, c):
         if kind == "center":
             size = op["size"]
             baseline = PAGE_H - top - size
-            c.setFont(op["font"], size)
-            w = stringWidth(op["text"], op["font"], size)
-            c.drawString((PAGE_W - w) / 2, baseline, op["text"])
+            font = op["font"]
+            c.setFont(font, size)
+            text = op["text"]
+            w = stringWidth(text, font, size)
+            x0 = (PAGE_W - w) / 2
+            c.drawString(x0, baseline, text)
+            # optional clickable hyperlink over one word (e.g. "LinkedIn")
+            lw = op.get("link_word")
+            lu = op.get("link_url")
+            if lw and lu and lw in text:
+                idx = text.find(lw)
+                pre_w = stringWidth(text[:idx], font, size)
+                word_w = stringWidth(lw, font, size)
+                lx0 = x0 + pre_w
+                lx1 = lx0 + word_w
+                url = lu if lu.startswith("http") else "https://" + lu
+                # underline + blue tint to signal a link, then the clickable rect
+                c.setFillColorRGB(0.05, 0.35, 0.65)
+                c.drawString(lx0, baseline, lw)  # redraw word in link color
+                c.setLineWidth(0.5)
+                c.setStrokeColorRGB(0.05, 0.35, 0.65)
+                c.line(lx0, baseline - 1.2, lx1, baseline - 1.2)
+                c.setFillColorRGB(0, 0, 0)
+                c.setStrokeColorRGB(0, 0, 0)
+                c.linkURL(url, (lx0, baseline - 2, lx1, baseline + size),
+                          relative=0, thickness=0)
 
         elif kind == "heading":
             size = SZ_HEADING
@@ -486,7 +513,8 @@ DEFAULT_DATA = {
     "filename": "Anandagani_Reddy_Data_Analyst_Resume",
     "name": "Anandaganireddy Nallamilli",
     "title": "Data Analyst | Analytics Engineering",
-    "contact": "San Jose, CA | anandaganireddy@gmail.com | (216) 678-9519 | LinkedIn",
+    "contact": "San Jose, CA | anand.nallami@gmail.com | (216) 678-9519 | LinkedIn",
+    "linkedin_url": "",
     "summary": (
         "Data Analyst with **5+ years** of experience driving product and business "
         "impact through data, specialising in **SQL, Python, Tableau, Power BI**, and "

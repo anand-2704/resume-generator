@@ -164,16 +164,43 @@
   .missItem input[type=checkbox]{width:15px;height:15px;accent-color:#2ea988;cursor:pointer}
   .missItem.have{border-color:#1c6a55;background:#0f2f26}
   .missNone{font-size:12px;color:#8ff0cf}
+  .selectAll{display:flex;align-items:center;gap:7px;font-size:12px;color:#8ff0cf;
+       cursor:pointer;margin-top:4px;padding:6px 2px;user-select:none}
+  .selectAll input{width:15px;height:15px;accent-color:#2ea988;cursor:pointer}
   .costBox{margin-top:14px;border-top:1px solid #21524644;padding-top:12px;display:none}
   .costBox.on{display:block}
   .costMain{font-size:12.5px;color:#eaf3f0;margin-bottom:6px}
   .costMain b{color:#8ff0cf}
+
+  /* cover letter */
+  .coverWrap{margin-top:14px;border-top:1px solid #21524644;padding-top:12px}
+  .coverWrap button.cover{background:#175f4d;color:#eaf3f0;font-weight:700;
+       border:1px solid #2a7a63}
+  .coverWrap button.cover:hover{background:#1c7057}
+  .coverText{width:100%;min-height:130px;border:1px solid #2a5a4d;background:#0b241e;
+       color:#eaf3f0;border-radius:7px;padding:10px 12px;font-size:12.5px;
+       line-height:1.5;margin-top:10px;resize:vertical}
+
+  /* My Details save/clear bar */
+  .detailsBar{display:flex;justify-content:space-between;align-items:center;
+       gap:12px;background:#fff;border:1px solid var(--line);border-radius:10px;
+       padding:12px 14px;margin-bottom:14px;flex-wrap:wrap}
+  .detailsInfo{font-size:12.5px;color:var(--ink-soft)}
+  .detailsInfo b{color:var(--ink);font-size:13px;margin-right:8px}
+  .detailsBtns{display:flex;gap:8px}
+  .detailsBtns button{font-size:12.5px;padding:7px 12px;border-radius:7px;cursor:pointer}
+  .detailsBtns .save{background:var(--accent);color:#fff;border:none;font-weight:700}
+  .detailsBtns .save:hover{background:#195a4b}
+  .detailsBtns .clear{background:#fff;border:1px solid var(--line-strong);color:var(--ink)}
+  .detailsBtns .clear:hover{border-color:#b23b2e;color:#b23b2e}
+  .savedTick{color:var(--accent);font-weight:600}
 </style>
 </head>
 <body>
 <header class="top">
   <h1>Resume Generator</h1>
-  <span class="sub">One page · ATS-safe · exact format match</span>
+  <span class="sub">ATS-safe · auto multi-page · exact format match</span>
+  <a href="/logout" style="margin-left:auto;font-size:12.5px;color:#5a6b7a;text-decoration:none">Log out</a>
 </header>
 
 <div class="layout">
@@ -225,6 +252,32 @@
           </div>
           <div class="miniNote" style="margin-top:6px">“Apply” fills the fields below. Review everything, then click Generate &amp; download at the bottom.</div>
         </div>
+
+        <div class="coverWrap">
+          <div class="applyRow">
+            <button class="cover" id="btnCover">Generate cover letter (optional)</button>
+            <span class="spin" id="coverSpin">Writing a short cover letter… (~5s)</span>
+          </div>
+          <div class="miniNote">A separate paid step (~$0.01). 5–7 lines, grounded in your real experience. Copy only — no file.</div>
+          <div id="coverBox" style="display:none">
+            <textarea id="coverText" class="coverText" readonly></textarea>
+            <div class="applyRow">
+              <button class="apply" id="btnCopyCover">Copy to clipboard</button>
+              <span class="costLine" id="coverCost"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detailsBar">
+      <div class="detailsInfo">
+        <b>My Details</b>
+        <span id="saveState">Not saved in this browser yet.</span>
+      </div>
+      <div class="detailsBtns">
+        <button class="save" id="btnSave">Save my details</button>
+        <button class="clear" id="btnClear">Clear / restore blank</button>
       </div>
     </div>
 
@@ -239,6 +292,9 @@
       <div style="height:8px"></div>
       <p class="field-label">Contact line</p>
       <input type="text" id="contact" value="{{ default.contact }}">
+      <div style="height:8px"></div>
+      <p class="field-label">LinkedIn URL (makes the word “LinkedIn” clickable in the PDF)</p>
+      <input type="text" id="linkedin_url" value="{{ default.linkedin_url }}" placeholder="linkedin.com/in/your-profile">
     </div>
 
     <div class="group">
@@ -365,6 +421,7 @@ function collect(){
     name: $('name').value,
     title: $('title').value,
     contact: $('contact').value,
+    linkedin_url: ($('linkedin_url')||{}).value||'',
     summary: $('summary').value,
     skills: $('skills').value,
     experience: jobs,
@@ -418,30 +475,32 @@ async function runEstimate(){
 }
 function paintMeter(m){
   const pct=m.pct;
-  $('mPct').textContent = pct.toFixed(0)+'% of page';
+  const pages=m.pages||1;
+  const fillPct=m.fill_pct||pct;
+  $('mPct').textContent = pages+(pages>1?' pages':' page');
   const fill=$('mFill');
-  fill.style.width=Math.min(pct,100)+'%';
+  // fill bar shows progress toward the current page's bottom
+  const withinPage = fillPct - (pages-1)*100;
+  fill.style.width=Math.min(Math.max(withinPage,0),100)+'%';
   const msg=$('mMsg'), status=$('mStatus'), ovf=$('pv-ovf');
   msg.classList.remove('ok','warn','over');
-  if(!m.fits || pct>100){
-    fill.style.background='var(--red)';
-    status.textContent='Over one page';
-    msg.classList.add('over');
-    const over=Math.max(1,Math.round((pct-100)/ (100/ (m.capacity/13.9)) ));
-    msg.textContent=`Content exceeds one page — trim about ${over} line${over>1?'s':''} (remove or shorten a bullet).`;
-    ovf.style.display='block';
+  ovf.style.display='none';   // never show the clip line now — content flows
+
+  if(pages>1){
+    fill.style.background='var(--accent)';
+    status.textContent=pages+' pages';
+    msg.classList.add('ok');
+    msg.textContent=`Your resume is ${pages} pages. Everything is included — nothing is cut. Trim content if you'd prefer one page.`;
   }else if(pct>=WARN_PCT){
     fill.style.background='var(--amber)';
-    status.textContent='Nearly full';
+    status.textContent='1 page — nearly full';
     msg.classList.add('warn');
-    msg.textContent=`Close to the edge (${pct.toFixed(0)}%). Fits now, but little room to spare.`;
-    ovf.style.display='none';
+    msg.textContent=`One page, ${pct.toFixed(0)}% full. A little more content will spill to a second page.`;
   }else{
     fill.style.background='var(--accent)';
-    status.textContent='Fits on one page';
+    status.textContent='1 page';
     msg.classList.add('ok');
-    msg.textContent=`Fits comfortably — ${(100-pct).toFixed(0)}% headroom.`;
-    ovf.style.display='none';
+    msg.textContent=`Fits on one page — ${(100-pct).toFixed(0)}% headroom.`;
   }
 }
 
@@ -571,7 +630,9 @@ function renderAnalysis(j){
         <span class="kw">${esc(k)}</span>
         <label><input type="checkbox" class="missChk" data-kw="${esc(k)}"
           onchange="this.closest('.missItem').classList.toggle('have',this.checked)"> I have used this</label>
-      </div>`).join('');
+      </div>`).join('')
+      + `<label class="selectAll"><input type="checkbox" id="missSelectAll"
+           onchange="toggleAllMiss(this.checked)"> Select all (I've used all of these)</label>`;
   }
 
   // cost box
@@ -583,6 +644,13 @@ function renderAnalysis(j){
 }
 
 // STAGE 2 — paid rewrite
+function toggleAllMiss(checked){
+  document.querySelectorAll('.missChk').forEach(c=>{
+    c.checked=checked;
+    c.closest('.missItem').classList.toggle('have',checked);
+  });
+}
+
 async function generateTailored(){
   const jd=$('jd').value.trim();
   const confirmed=[...document.querySelectorAll('.missChk:checked')]
@@ -639,6 +707,111 @@ $('btnAnalyze').addEventListener('click',analyzeJob);
 $('btnGenTailored').addEventListener('click',generateTailored);
 $('btnApply').addEventListener('click',applyTailored);
 $('btnRevert').addEventListener('click',revertTailored);
+
+// ---------- Cover letter (optional, separate paid call) ----------
+async function generateCover(){
+  const jd=$('jd').value.trim();
+  if(jd.length<40){alert('Paste the job description first (in the box above).');return;}
+  const btn=$('btnCover'), spin=$('coverSpin');
+  btn.disabled=true; spin.classList.add('on');
+  try{
+    const payload=collect(); payload.jd=jd;
+    const r=await fetch('/api/cover_letter',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok){alert('Cover letter failed: '+(j.error||'unknown error'));return;}
+    $('coverText').value=j.cover_letter;
+    $('coverBox').style.display='block';
+    $('coverCost').textContent=`≈ $${j.cost.usd.toFixed(4)}`;
+  }catch(e){alert('Cover letter error: '+e.message);}
+  finally{btn.disabled=false; spin.classList.remove('on');}
+}
+function copyCover(){
+  const t=$('coverText'); t.select(); t.setSelectionRange(0,99999);
+  try{ navigator.clipboard.writeText(t.value); }catch(e){ document.execCommand('copy'); }
+  const b=$('btnCopyCover'); const old=b.textContent; b.textContent='Copied ✓';
+  setTimeout(()=>b.textContent=old,1500);
+}
+$('btnCover').addEventListener('click',generateCover);
+$('btnCopyCover').addEventListener('click',copyCover);
+
+// ---------- My Details: save / load / clear (browser localStorage) ----------
+const STORAGE_KEY='rg_master_details_v1';
+
+function saveDetails(){
+  try{
+    const d=collect();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+    markSaved(true);
+  }catch(e){ alert('Could not save in this browser: '+e.message); }
+}
+
+function loadDetails(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw) return false;
+    const d=JSON.parse(raw);
+    // header + filename
+    if(d.name!==undefined)$('name').value=d.name;
+    if(d.title!==undefined)$('title').value=d.title;
+    if(d.contact!==undefined)$('contact').value=d.contact;
+    if(d.linkedin_url!==undefined&&$('linkedin_url'))$('linkedin_url').value=d.linkedin_url;
+    if(d.filename!==undefined)$('filename').value=d.filename;
+    if(d.summary!==undefined)$('summary').value=d.summary;
+    if(d.skills!==undefined)$('skills').value=d.skills;
+    if(d.education!==undefined)$('education').value=d.education;
+    if(d.certifications!==undefined)$('certifications').value=d.certifications;
+    const cards=document.querySelectorAll('.subcard');
+    (d.experience||[]).forEach((j,i)=>{
+      if(!cards[i])return;
+      cards[i].querySelector('.j-company').value=j.company||'';
+      cards[i].querySelector('.j-title').value=j.job_title||'';
+      cards[i].querySelector('.j-meta').value=j.meta||'';
+      cards[i].querySelector('.j-bullets').value=j.bullets||'';
+    });
+    markSaved(true);
+    return true;
+  }catch(e){ return false; }
+}
+
+function clearDetails(){
+  if(!confirm('Clear all saved details from this browser and blank the form? '+
+              'This lets someone else enter their own resume.'))return;
+  localStorage.removeItem(STORAGE_KEY);
+  // blank every field
+  ['name','title','contact','linkedin_url','summary','skills','education','certifications'].forEach(id=>{if($(id))$(id).value='';});
+  $('filename').value='resume';
+  document.querySelectorAll('.subcard').forEach(card=>{
+    card.querySelector('.j-company').value='';
+    card.querySelector('.j-title').value='';
+    card.querySelector('.j-meta').value='';
+    card.querySelector('.j-bullets').value='';
+  });
+  $('jd').value='';
+  markSaved(false, true);
+  refresh();
+}
+
+function markSaved(saved, cleared){
+  const el=$('saveState');
+  if(cleared){el.textContent='Cleared. Enter new details and Save.';el.className='';return;}
+  if(saved){
+    const t=new Date().toLocaleTimeString();
+    el.innerHTML='<span class="savedTick">Saved in this browser</span> · loads automatically next time';
+  }else{
+    el.textContent='Not saved in this browser yet.';
+  }
+}
+
+$('btnSave').addEventListener('click',saveDetails);
+$('btnClear').addEventListener('click',clearDetails);
+// mark "unsaved" whenever fields change after a save
+document.querySelectorAll('input,textarea').forEach(el=>{
+  el.addEventListener('input',()=>{ /* keep it simple: state updates on save */ });
+});
+
+// On load: if the user has saved details in this browser, restore them.
+loadDetails();
 
 refresh();
 </script>
